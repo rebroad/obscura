@@ -98,9 +98,9 @@ if [[ -n "${!binding_var:-}" || -n "${RUSTY_V8_SRC_BINDING_PATH:-}" ]]; then
 fi
 
 if [[ "$TARGET" != "$HOST" ]]; then
-  cargo_args=(--config "patch.crates-io.v8.path=\"\"")
+  cargo_args=(--config "patch.crates-io.v8.path=\"${RUSTY_V8_SOURCE}\"")
 else
-  cargo_args=()
+  cargo_args=(--config "patch.crates-io.v8.path=\"${RUSTY_V8_SOURCE}\"")
 fi
 if [[ -n "$JOBS" ]]; then export CARGO_BUILD_JOBS="$JOBS"; fi
 
