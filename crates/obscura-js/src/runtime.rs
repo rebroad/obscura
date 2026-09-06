@@ -56,6 +56,20 @@ static SNAPSHOT: &[u8] = include_bytes!(env!("OBSCURA_SNAPSHOT_PATH"));
 /// serializing it costs nothing measurable; isolate *execution* stays fully
 /// parallel, each isolate on its own thread with no shared lock.
 static ISOLATE_CREATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+fn enter_tokio_context_if_needed() -> Option<tokio::runtime::EnterGuard<'static>> {
+    if tokio::runtime::Handle::try_current().is_ok() {
+        return None;
+    }
+    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
+    let runtime = RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("Obscura fallback Tokio runtime should build")
+    });
+    Some(runtime.enter())
+}
+
 
 const DEFAULT_CDP_AWAIT_TIMEOUT_MS: u64 = 30_000;
 const HEAP_LIMIT_RECOVERY_HEADROOM_BYTES: usize = 64 * 1024 * 1024;
@@ -195,14 +209,6 @@ pub struct ObscuraJsRuntime {
 }
 
 /// Renders a caught V8 exception as a message for realm evaluation errors.
-fn exception_text(
-    scope: &mut deno_core::v8::TryCatch<'_, deno_core::v8::HandleScope<'_>>,
-) -> String {
-    match scope.exception() {
-        Some(exception) => exception.to_rust_string_lossy(scope),
-        None => "unknown error".to_string(),
-    }
-}
 
 /// A fetched and instantiated module graph whose evaluation is intentionally
 /// delayed until the HTML script scheduler reaches its post-parse turn.
@@ -516,7 +522,7 @@ impl ObscuraJsRuntime {
             let _create_guard = ISOLATE_CREATE_LOCK
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-
+            let _tokio_context = enter_tokio_context_if_needed();
             // ICU falls back to the host OS locale when no default is set,
             // so Intl.* formats and resolvedOptions().locale leaked the
             // operator's real locale (an en-AU host showed en-AU) while
@@ -609,7 +615,7 @@ impl ObscuraJsRuntime {
         let context = {
             let mut entered = self.runtime();
             let isolate = entered.v8_isolate();
-            let scope = &mut deno_core::v8::HandleScope::new(isolate);
+            deno_core::v8::scope!(scope, isolate);
             let context = deno_core::v8::Context::from_snapshot(
                 scope,
                 1,
@@ -639,7 +645,7 @@ impl ObscuraJsRuntime {
         let main = self.runtime().main_context();
         let mut entered = self.runtime();
         let isolate = entered.v8_isolate();
-        let scope = &mut v8::HandleScope::new(isolate);
+        v8::scope!(scope, isolate);
         let context = v8::Local::new(scope, main);
         let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -675,7 +681,7 @@ impl ObscuraJsRuntime {
         };
         let mut entered = self.runtime();
         let isolate = entered.v8_isolate();
-        let scope = &mut v8::HandleScope::new(isolate);
+        v8::scope!(scope, isolate);
         let context = v8::Local::new(scope, realm);
         let scope = &mut v8::ContextScope::new(scope, context);
 
@@ -736,19 +742,19 @@ impl ObscuraJsRuntime {
 
         let mut entered = self.runtime();
         let isolate = entered.v8_isolate();
-        let scope = &mut v8::HandleScope::new(isolate);
+        v8::scope!(scope, isolate);
         let context = v8::Local::new(scope, realm);
         let scope = &mut v8::ContextScope::new(scope, context);
-        let scope = &mut v8::TryCatch::new(scope);
+        v8::tc_scope!(let try_catch, scope);
 
-        let code = v8::String::new(scope, source).ok_or("source too large")?;
-        let script = match v8::Script::compile(scope, code, None) {
+        let code = v8::String::new(try_catch, source).ok_or("source too large")?;
+        let script = match v8::Script::compile(try_catch, code, None) {
             Some(script) => script,
-            None => return Err(exception_text(scope)),
+            None => return Err(try_catch.exception().map(|exception| exception.to_rust_string_lossy(try_catch)).unwrap_or_else(|| "unknown error".to_string())),
         };
-        match script.run(scope) {
-            Some(value) => Ok(value.to_rust_string_lossy(scope)),
-            None => Err(exception_text(scope)),
+        match script.run(try_catch) {
+            Some(value) => Ok(value.to_rust_string_lossy(try_catch)),
+            None => Err(try_catch.exception().map(|exception| exception.to_rust_string_lossy(try_catch)).unwrap_or_else(|| "unknown error".to_string())),
         }
     }
 
@@ -778,7 +784,7 @@ impl ObscuraJsRuntime {
         let main = self.runtime().main_context();
         let mut entered = self.runtime();
         let isolate = entered.v8_isolate();
-        let scope = &mut v8::HandleScope::new(isolate);
+        v8::scope!(scope, isolate);
 
         let main_context = v8::Local::new(scope, main);
         let mut carried = Vec::new();
@@ -855,7 +861,7 @@ impl ObscuraJsRuntime {
         let main = self.runtime().main_context();
         let mut entered = self.runtime();
         let isolate = entered.v8_isolate();
-        let scope = &mut v8::HandleScope::new(isolate);
+        v8::scope!(scope, isolate);
         let main = v8::Local::new(scope, main);
         let realm = v8::Local::new(scope, realm);
         let token = main.get_security_token(scope);
@@ -881,7 +887,7 @@ impl ObscuraJsRuntime {
         let main = self.runtime().main_context();
         let mut entered = self.runtime();
         let isolate = entered.v8_isolate();
-        let scope = &mut v8::HandleScope::new(isolate);
+        v8::scope!(scope, isolate);
 
         // Read the frame's globals first, then install them in the page realm.
         // Both contexts belong to this isolate, so the handles stay valid
@@ -2579,15 +2585,17 @@ impl ObscuraJsRuntime {
     }
 
     fn execute_classic_script(&mut self, name: &str, source: &str) -> Result<(), String> {
+        use deno_core::v8;
         self.begin_javascript_task();
         let script_url = name.to_string();
         // JsRuntime::execute_script in deno_core 0.350 restricts `name` to a
         // &'static str. Browser script URLs are runtime data, and V8 uses this
         // origin as import()'s referrer, so compile in the runtime's main
         // context directly instead of substituting the fixed "<script>" name.
-        let result: Result<(), (String, Option<deno_core::error::JsError>)> = (|| {
+        let result: Result<(), (String, Option<Box<deno_core::error::JsError>>)> = (|| {
             let mut entered = self.runtime();
-            let scope = &mut entered.handle_scope();
+            let main = entered.main_context();
+            deno_core::v8::scope_with_context!(scope, entered.v8_isolate(), main);
             let source = deno_core::v8::String::new(scope, source)
                 .ok_or_else(|| ("JS error: source allocation failed".to_string(), None))?;
             let name = deno_core::v8::String::new(scope, name)
@@ -2605,16 +2613,16 @@ impl ObscuraJsRuntime {
                 false,
                 None,
             );
-            let scope = &mut deno_core::v8::TryCatch::new(scope);
-            let script = deno_core::v8::Script::compile(scope, source, Some(&origin));
+            deno_core::v8::tc_scope!(let try_catch, scope);
+            let script = deno_core::v8::Script::compile(try_catch, source, Some(&origin));
             let Some(script) = script else {
-                if scope.is_execution_terminating() {
-                    scope.cancel_terminate_execution();
+                if try_catch.is_execution_terminating() {
+                    try_catch.cancel_terminate_execution();
                     return Err(("JS error: Uncaught Error: execution terminated".to_string(), None));
                 }
-                return match scope.exception() {
+                return match try_catch.exception() {
                     Some(exception) => {
-                        let error = deno_core::error::JsError::from_v8_exception(scope, exception);
+                        let error = deno_core::error::JsError::from_v8_exception(try_catch, exception);
                         Err((format!("JS error: {error}"), Some(error)))
                     }
                     None => Err((
@@ -2623,14 +2631,14 @@ impl ObscuraJsRuntime {
                     )),
                 };
             };
-            if script.run(scope).is_none() {
-                if scope.is_execution_terminating() {
-                    scope.cancel_terminate_execution();
+            if script.run(try_catch).is_none() {
+                if try_catch.is_execution_terminating() {
+                    try_catch.cancel_terminate_execution();
                     return Err(("JS error: Uncaught Error: execution terminated".to_string(), None));
                 }
-                return match scope.exception() {
+                return match try_catch.exception() {
                     Some(exception) => {
-                        let error = deno_core::error::JsError::from_v8_exception(scope, exception);
+                        let error = deno_core::error::JsError::from_v8_exception(try_catch, exception);
                         Err((format!("JS error: {error}"), Some(error)))
                     }
                     None => Err((
@@ -3484,8 +3492,10 @@ impl ObscuraJsRuntime {
         &mut self,
         result: deno_core::v8::Global<deno_core::v8::Value>,
     ) -> Result<serde_json::Value, String> {
+        use deno_core::v8;
         let mut entered = self.runtime();
-        let scope = &mut entered.handle_scope();
+        let main = entered.main_context();
+        deno_core::v8::scope_with_context!(scope, entered.v8_isolate(), main);
         let local = deno_core::v8::Local::new(scope, result);
 
         if local.is_undefined() || local.is_null() {

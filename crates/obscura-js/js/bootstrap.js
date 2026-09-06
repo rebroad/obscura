@@ -891,13 +891,13 @@ const _scheduleAfter = (delay, fn) => {
   }
   // The callback runs only when the embedder pumps the event loop, after the
   // current microtask checkpoint.
-  return Deno.core.queueUserTimer(0, false, d, () => {
+  return Deno.core.createTimer(() => {
     // HTML timer/observer/rAF delivery starts a new task. Freeze animation
     // time lazily on that task's first style/layout read so a callback that
     // waited in the host queue samples its actual delivery instant.
     Deno.core.ops.op_begin_render_task?.();
     return fn();
-  });
+  }, d, undefined, false, true);
 };
 
 const _cancelScheduled = (nativeId) => {

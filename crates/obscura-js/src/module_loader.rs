@@ -4,12 +4,11 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 
 use deno_core::error::ModuleLoaderError;
-use deno_core::ModuleLoadResponse;
+use deno_core::{ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleResolveResponse, ResolutionKind};
 use deno_core::ModuleLoader;
 use deno_core::ModuleSource;
 use deno_core::ModuleSourceCode;
 use deno_core::ModuleSpecifier;
-use deno_core::RequestedModuleType;
 
 use crate::import_map::ImportMap;
 use crate::ops::ObscuraState;
@@ -146,7 +145,7 @@ impl ObscuraModuleLoader {
 }
 
 fn io_err(msg: String) -> ModuleLoaderError {
-    std::io::Error::new(std::io::ErrorKind::Other, msg).into()
+    deno_error::JsErrorBox::generic(msg)
 }
 
 impl ModuleLoader for ObscuraModuleLoader {
@@ -154,15 +153,15 @@ impl ModuleLoader for ObscuraModuleLoader {
         &self,
         specifier: &str,
         referrer: &str,
-        _kind: deno_core::ResolutionKind,
-    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+        kind: ResolutionKind,
+    ) -> ModuleResolveResponse {
         // deno_core represents the root passed to load_side_es_module with a
         // synthetic "." referrer. A browser resolves <script type=module src>
         // as a resource URL before it starts a graph; the document import map
         // must not remap that root URL.
         if referrer == "." {
             return deno_core::resolve_import(specifier, &self.base_url)
-                .map_err(|error| error.into());
+                .map_err(|error| deno_error::JsErrorBox::generic(error.to_string()));
         }
 
         let base = if referrer.is_empty()
@@ -176,6 +175,7 @@ impl ModuleLoader for ObscuraModuleLoader {
 
         let base = ModuleSpecifier::parse(base)
             .map_err(|e| io_err(format!("Invalid module referrer {}: {}", base, e)))?;
+        let _ = kind;
         self.import_map
             .try_borrow_mut()
             .map_err(|_| io_err("Import map is already borrowed".to_string()))?
@@ -186,9 +186,8 @@ impl ModuleLoader for ObscuraModuleLoader {
     fn load(
         &self,
         module_specifier: &ModuleSpecifier,
-        maybe_referrer: Option<&ModuleSpecifier>,
-        is_dyn_import: bool,
-        _requested_module_type: RequestedModuleType,
+        maybe_referrer: Option<&ModuleLoadReferrer>,
+        options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
         let url = module_specifier.to_string();
         // Module-graph CORS and same-origin credentials are relative to the
@@ -199,7 +198,7 @@ impl ModuleLoader for ObscuraModuleLoader {
         let document_url = ModuleSpecifier::parse(&self.base_url)
             .unwrap_or_else(|_| module_specifier.clone());
         let referrer = maybe_referrer
-            .cloned()
+            .map(|referrer| referrer.specifier.clone())
             .unwrap_or_else(|| document_url.clone());
         // Capture the loader's proxy here so the async closure below owns a
         // plain Option<String> rather than borrowing &self across an `await`.
@@ -211,7 +210,7 @@ impl ModuleLoader for ObscuraModuleLoader {
         // runtime between deno_core accepting the load and first polling it.
         // Keeping the guard inside the future makes cancellation/navigation
         // decrement the count through Drop as well as success and failure.
-        let activity_guard = is_dyn_import.then(|| activity.begin());
+        let activity_guard = options.is_dynamic_import.then(|| activity.begin());
         let page_network = match self.page_state.as_ref() {
             Some(weak) => (|| {
                 let state = weak
