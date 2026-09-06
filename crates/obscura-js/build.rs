@@ -185,6 +185,17 @@ fn generate_host_snapshot(bootstrap_js: &str, snapshot_path: &PathBuf) {
 
 /// Find the cross-mksnapshot binary for the target architecture.
 fn find_cross_mksnapshot(target_dir: &std::path::Path, target: &str, profile: &str) -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("OBSCURA_CROSS_MKSNAPSHOT") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+        eprintln!(
+            "[obscura-js build.rs] OBSCURA_CROSS_MKSNAPSHOT does not name a file: {}",
+            path.display()
+        );
+    }
+
     let gn_out = target_dir.join(profile).join("gn_out");
 
     // Determine the cross directory name based on host and target architectures.
