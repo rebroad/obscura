@@ -98,7 +98,7 @@ if [[ -n "${!binding_var:-}" || -n "${RUSTY_V8_SRC_BINDING_PATH:-}" ]]; then
 fi
 
 if [[ "$TARGET" != "$HOST" ]]; then
-  cargo_args=(--config "patch.crates-io.v8.path=${RUSTY_V8_SOURCE}")
+  cargo_args=(--config "patch.crates-io.v8.path=\"\"")
 else
   cargo_args=()
 fi
