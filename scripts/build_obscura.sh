@@ -100,7 +100,7 @@ fi
 if [[ "$TARGET" != "$HOST" ]]; then
   cargo_args=(--config "patch.crates-io.v8.path=\"${RUSTY_V8_SOURCE}\"")
 else
-  cargo_args=(--config "patch.crates-io.v8.path=\"${RUSTY_V8_SOURCE}\"")
+  cargo_args=()
 fi
 if [[ -n "$JOBS" ]]; then export CARGO_BUILD_JOBS="$JOBS"; fi
 
