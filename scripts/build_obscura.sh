@@ -28,8 +28,8 @@ Options:
 Cross-build variables:
   RUSTY_V8_SOURCE       Rusty V8 checkout; required for target-specific V8
                         archive selection when TARGET differs from the host
-  RUSTY_V8_ARCHIVE_<TARGET>
-  RUSTY_V8_SRC_BINDING_PATH_<TARGET>
+  RUSTY_V8_ARCHIVE_<TARGET> and RUSTY_V8_ARCHIVE_<HOST>
+  RUSTY_V8_SRC_BINDING_PATH_<TARGET> and RUSTY_V8_SRC_BINDING_PATH_<HOST>
   ANDROID_CLANG, ANDROID_BUILTINS, ANDROID_TMP_DIR
 EOF
 }
@@ -64,11 +64,21 @@ fi
 HOST="$(rustc -vV | sed -n 's/^host: //p')"
 TARGET_KEY="${TARGET^^}"
 TARGET_KEY="${TARGET_KEY//-/_}"
+HOST_KEY="${HOST^^}"
+HOST_KEY="${HOST_KEY//-/_}"
+host_archive_var="RUSTY_V8_ARCHIVE_${HOST_KEY}"
+host_binding_var="RUSTY_V8_SRC_BINDING_PATH_${HOST_KEY}"
 archive_var="RUSTY_V8_ARCHIVE_${TARGET_KEY}"
 binding_var="RUSTY_V8_SRC_BINDING_PATH_${TARGET_KEY}"
 
 if [[ -n "${!archive_var:-}" ]]; then
   : "${!binding_var:?${binding_var} must be set with ${archive_var}}"
+fi
+if [[ -n "${!host_archive_var:-}" || -n "${RUSTY_V8_ARCHIVE_HOST:-}" || -n "${RUSTY_V8_ARCHIVE:-}" ]]; then
+  export "${host_archive_var}=${!host_archive_var:-${RUSTY_V8_ARCHIVE_HOST:-${RUSTY_V8_ARCHIVE:-}}}"
+fi
+if [[ -n "${!host_binding_var:-}" || -n "${RUSTY_V8_SRC_BINDING_PATH_HOST:-}" || -n "${RUSTY_V8_SRC_BINDING_PATH:-}" ]]; then
+  export "${host_binding_var}=${!host_binding_var:-${RUSTY_V8_SRC_BINDING_PATH_HOST:-${RUSTY_V8_SRC_BINDING_PATH:-}}}"
 fi
 
 if [[ "$TARGET" != "$HOST" ]]; then
@@ -76,6 +86,8 @@ if [[ "$TARGET" != "$HOST" ]]; then
   [[ -d "$RUSTY_V8_SOURCE" ]] || die "RUSTY_V8_SOURCE is not a directory: $RUSTY_V8_SOURCE"
   [[ -n "${!archive_var:-}" ]] || die "set ${archive_var} for cross compilation"
   [[ -n "${!binding_var:-}" ]] || die "set ${binding_var} for cross compilation"
+  [[ -n "${!host_archive_var:-${RUSTY_V8_ARCHIVE_HOST:-${RUSTY_V8_ARCHIVE:-}}}" ]] || die "set ${host_archive_var} or RUSTY_V8_ARCHIVE for cross compilation"
+  [[ -n "${!host_binding_var:-${RUSTY_V8_SRC_BINDING_PATH_HOST:-${RUSTY_V8_SRC_BINDING_PATH:-}}}" ]] || die "set ${host_binding_var} or RUSTY_V8_SRC_BINDING_PATH for cross compilation"
 fi
 
 if [[ -n "${!archive_var:-}" || -n "${RUSTY_V8_ARCHIVE:-}" ]]; then
