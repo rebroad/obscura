@@ -105,27 +105,10 @@ fn main() {
             .expect("Failed to run cross-mksnapshot");
         assert!(status.success(), "cross-mksnapshot failed with status: {status}");
 
-        let mut raw_blob = std::fs::read(&raw_blob_path).expect("Failed to read cross-mksnapshot output");
+        let raw_blob = std::fs::read(&raw_blob_path).expect("Failed to read cross-mksnapshot output");
 
-        // Step 3: Patch the snapshot version in the raw blob header.
-        // mksnapshot produces version 1 (no external refs), but the target V8
-        // (built with SnapshotCreator) expects version 2 (with external refs).
-        // The actual serialized heap data is compatible; only the version tag differs.
-        let expected_version: u32 = u32::from_le_bytes(
-            host_data[0..4].try_into().unwrap(),
-        );
-        let raw_version: u32 = u32::from_le_bytes(
-            raw_blob[0..4].try_into().unwrap(),
-        );
-        if raw_version != expected_version {
-            eprintln!(
-                "[obscura-js build.rs] Patching snapshot version: {} -> {}",
-                raw_version, expected_version
-            );
-            raw_blob[0..4].copy_from_slice(&expected_version.to_le_bytes());
-        }
 
-        // Step 4: Combine the patched raw blob with the extracted sidecar.
+        // Step 3: Combine the target raw blob with the extracted sidecar.
         let mut combined = Vec::with_capacity(raw_blob.len() + sidecar.len() + ulen);
         combined.extend_from_slice(&raw_blob);
         combined.extend_from_slice(sidecar);
