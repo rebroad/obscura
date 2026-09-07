@@ -13,6 +13,14 @@ fn main() {
     let host = std::env::var("HOST").unwrap_or_default();
     let is_cross = target != host;
 
+    // Android runtimes initialize bootstrap.js per isolate instead of restoring
+    // a V8 startup snapshot. Emit the required include file without running
+    // snapshot creation against the target Android V8 archive.
+    if target.ends_with("-android") {
+        std::fs::write(&snapshot_path, []).expect("Failed to write Android snapshot placeholder");
+        println!("cargo:rustc-env=OBSCURA_SNAPSHOT_PATH={}", snapshot_path.display());
+        return;
+    }
     let bootstrap_js = include_str!("js/bootstrap.js");
 
     if is_cross {
