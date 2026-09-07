@@ -98,9 +98,9 @@ fn main() {
 
         let status = Command::new(&cross_mksnapshot)
             .arg(format!("--startup-blob={}", raw_blob_path.display()))
-            .arg("--target_arch=arm64")
-            .arg("--target_os=android")
-            .arg(&bootstrap_path)
+            .arg("--target-arch=arm64")
+            .arg("--target-os=android")
+            .arg(format!("--startup-src={}", bootstrap_path.display()))
             .status()
             .expect("Failed to run cross-mksnapshot");
         assert!(status.success(), "cross-mksnapshot failed with status: {status}");
