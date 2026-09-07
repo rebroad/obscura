@@ -45,6 +45,9 @@ impl obscura_render::CanvasSurfaceSource for RuntimeCanvasSurfaceSource<'_> {
 
 static SNAPSHOT: &[u8] = include_bytes!(env!("OBSCURA_SNAPSHOT_PATH"));
 
+#[cfg(target_os = "android")]
+const BOOTSTRAP: &str = include_str!("../js/bootstrap.js");
+
 /// Serializes V8 isolate construction across OS threads. The thread-per-
 /// connection server (issue #430) builds isolates on many threads. The main
 /// thread already warms up V8 once before any connection thread starts (see the
@@ -535,7 +538,11 @@ impl ObscuraJsRuntime {
             let mut runtime = JsRuntime::new(RuntimeOptions {
                 extensions: vec![build_extension()],
                 module_loader: Some(module_loader),
-                startup_snapshot: Some(SNAPSHOT),
+                startup_snapshot: if cfg!(target_os = "android") {
+                    None
+                } else {
+                    Some(SNAPSHOT)
+                },
                 ..Default::default()
             });
 
@@ -546,6 +553,11 @@ impl ObscuraJsRuntime {
                 // Empty until a frame realm exists, which is what keeps the
                 // lookup free for pages that have no frames.
                 op_state.put(Rc::new(RefCell::new(crate::ops::RealmStates::default())));
+            }
+            if cfg!(target_os = "android") {
+                runtime
+                    .execute_script("<obscura:bootstrap>", BOOTSTRAP.to_string())
+                    .expect("bootstrap.js should load without a startup snapshot");
             }
 
             let isolate_handle = runtime.v8_isolate().thread_safe_handle();
