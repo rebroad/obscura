@@ -1261,6 +1261,9 @@
     reportUnhandledException: (e) => op_dispatch_exception(e, false),
     reportUnhandledPromiseRejection: (e) => op_dispatch_exception(e, true),
     createTimer: __timers.createTimer,
+    // Compatibility for pages and older Obscura modules using the pre-150 API.
+    queueUserTimer: (_priority, isRepeat, after, callback) =>
+      __timers.createTimer(callback, after, undefined, !!isRepeat, true),
     cancelTimer: __timers.cancelTimer,
     refreshTimer: __timers.refreshTimer,
     refTimer: __timers.refTimer,
