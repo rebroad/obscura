@@ -105,9 +105,14 @@ fn main() {
             .expect("Failed to run cross-mksnapshot");
         assert!(status.success(), "cross-mksnapshot failed with status: {status}");
 
-        let raw_blob = std::fs::read(&raw_blob_path).expect("Failed to read cross-mksnapshot output");
+        let mut raw_blob = std::fs::read(&raw_blob_path).expect("Failed to read cross-mksnapshot output");
 
 
+        // deno_core requests context 1 before context 0. mksnapshot emits one
+        // valid context; reuse its offset for both indices within the aligned header.
+        let context_offset = raw_blob[88..92].to_owned();
+        raw_blob[0..4].copy_from_slice(&2u32.to_le_bytes());
+        raw_blob[92..96].copy_from_slice(&context_offset);
         // Step 3: Combine the target raw blob with the extracted sidecar.
         let mut combined = Vec::with_capacity(raw_blob.len() + sidecar.len() + ulen);
         combined.extend_from_slice(&raw_blob);
