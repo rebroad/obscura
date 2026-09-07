@@ -74,7 +74,11 @@
 // and to find each new realm's own table to fill, then deletes the global in
 // the same step, so page script never sees it (see runtime.rs
 // `take_ops_handoff` / `share_ops_with_realm`).
-globalThis.__obscura_core_handoff = Deno.core;
+globalThis.__obscura_core_handoff = {
+  ops: Deno.core.ops,
+  queueUserTimer: (_priority, isRepeat, after, callback) =>
+    Deno.core.createTimer(callback, after, undefined, !!isRepeat, true),
+};
 // Compatibility for Google Photos and older Obscura modules using the pre-150 timer API.
 try {
   if (typeof Deno.core.queueUserTimer !== "function" && typeof Deno.core.createTimer === "function") {

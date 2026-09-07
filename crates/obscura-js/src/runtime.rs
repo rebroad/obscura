@@ -703,6 +703,9 @@ impl ObscuraJsRuntime {
         let Some(ops_key) = v8::String::new(scope, "ops") else {
             return false;
         };
+        let Some(timer_key) = v8::String::new(scope, "queueUserTimer") else {
+            return false;
+        };
         let global = context.global(scope);
         let Some(core) = global.get(scope, handoff_key.into()) else {
             return false;
@@ -711,6 +714,7 @@ impl ObscuraJsRuntime {
             return false;
         };
         // `Deno.core.ops` is non-writable and non-configurable, so the table
+        let timer = core.get(scope, timer_key.into());
         // cannot be swapped wholesale: V8 reports success and changes nothing.
         // Copy the bound op functions into the realm's existing table instead.
         let Some(target) = core
@@ -737,6 +741,13 @@ impl ObscuraJsRuntime {
             if target.set(scope, key, value).unwrap_or(false) {
                 copied += 1;
             }
+        }
+        if let Some(timer) = timer {
+            let Some(deno_key) = v8::String::new(scope, "Deno") else { return false; };
+            let Some(core_key) = v8::String::new(scope, "core") else { return false; };
+            let Some(deno) = global.get(scope, deno_key.into()).and_then(|value| value.to_object(scope)) else { return false; };
+            let Some(target_core) = deno.get(scope, core_key.into()).and_then(|value| value.to_object(scope)) else { return false; };
+            if !target_core.set(scope, timer_key.into(), timer).unwrap_or(false) { return false; }
         }
         // The child realm must not expose the handoff to frame script either.
         global.delete(scope, handoff_key.into());
