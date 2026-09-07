@@ -75,6 +75,16 @@
 // the same step, so page script never sees it (see runtime.rs
 // `take_ops_handoff` / `share_ops_with_realm`).
 globalThis.__obscura_core_handoff = Deno.core;
+// Compatibility for Google Photos and older Obscura modules using the pre-150 timer API.
+try {
+  if (typeof Deno.core.queueUserTimer !== "function" && typeof Deno.core.createTimer === "function") {
+    Object.defineProperty(Deno.core, "queueUserTimer", {
+      value: (_priority, isRepeat, after, callback) =>
+        Deno.core.createTimer(callback, after, undefined, !!isRepeat, true),
+      configurable: true,
+    });
+  }
+} catch (_e) {}
 
 globalThis.__obscura_errors = [];
 
