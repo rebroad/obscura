@@ -125,12 +125,7 @@ if [[ -n "$JOBS" ]]; then export CARGO_BUILD_JOBS="$JOBS"; fi
 cd "$SOURCE_REPO"
 cargo "${cargo_args[@]}" build --profile "$PROFILE" --target "$TARGET" \
   -p obscura-cli --bins --features render
-
-if [[ "$TARGET" == "$HOST" ]]; then
-  binary="$SOURCE_REPO/target/$PROFILE/obscura"
-else
-  binary="$SOURCE_REPO/target/$TARGET/$PROFILE/obscura"
-fi
+binary="$SOURCE_REPO/target/$TARGET/$PROFILE/obscura"
 [[ -x "$binary" ]] || die "Cargo completed but binary is missing: $binary"
 echo "Built $binary"
 
