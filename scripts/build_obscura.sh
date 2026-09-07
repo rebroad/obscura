@@ -82,6 +82,14 @@ if [[ -n "${!host_binding_var:-}" || -n "${RUSTY_V8_SRC_BINDING_PATH_HOST:-}" ||
   export "${host_binding_var}=${!host_binding_var:-${RUSTY_V8_SRC_BINDING_PATH_HOST:-${RUSTY_V8_SRC_BINDING_PATH:-}}}"
 fi
 
+
+if [[ "$TARGET" == aarch64-linux-android ]] && [[ -n "${ANDROID_CLANG:-}" ]]; then
+  clang_dir="$(dirname -- "$ANDROID_CLANG")"
+  export CC_aarch64_linux_android="$ANDROID_CLANG"
+  export CXX_aarch64_linux_android="${ANDROID_CLANG%clang}clang++"
+  export AR_aarch64_linux_android="$clang_dir/llvm-ar"
+  export RANLIB_aarch64_linux_android="$clang_dir/llvm-ranlib"
+fi
 if [[ "$TARGET" != "$HOST" ]]; then
   [[ -n "${RUSTY_V8_SOURCE:-}" ]] || die "cross builds require RUSTY_V8_SOURCE"
   [[ -d "$RUSTY_V8_SOURCE" ]] || die "RUSTY_V8_SOURCE is not a directory: $RUSTY_V8_SOURCE"
